@@ -1,0 +1,36 @@
+# Bygg APK utan dator med GitHub Actions
+
+Den här ZIP:en innehåller Android-appen + en färdig GitHub Actions-fil som bygger APK automatiskt i molnet.
+
+## Steg på mobilen
+
+1. Gå till https://github.com och skapa/logga in på konto.
+2. Tryck på + och skapa ett nytt repository.
+   Namnförslag: skotselytor-gps
+3. Välj Public eller Private.
+4. Ladda upp alla filer/mappar från denna ZIP till repositoryt.
+   Viktigt: ladda upp innehållet i mappen, inte själva ZIP-filen som en enda fil.
+5. Gå till fliken Actions.
+6. Om GitHub frågar om du vill enable workflows, godkänn.
+7. Kör workflowen "Build Android APK" manuellt, eller gör en commit/push till main.
+8. Vänta tills den blir grön.
+9. Öppna den färdiga körningen.
+10. Scrolla till Artifacts.
+11. Ladda ner: skotselytor-gps-debug-apk
+12. Packa upp artifact-filen på mobilen.
+13. Installera app-debug.apk.
+
+## Om mobilen varnar
+Android kan varna för okänd app eftersom den inte kommer från Play Store.
+Välj att tillåta installation från webbläsaren/filer.
+
+## Appens funktion
+- Karta med skötselytor
+- Live-GPS
+- Noggrannhetscirkel
+- GPS-spårning
+- Klippstatus
+- All data sparas lokalt på mobilen
+
+## Viktigt
+Appen kräver internet för att ladda kartan.
