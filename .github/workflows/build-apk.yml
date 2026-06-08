@@ -71,8 +71,8 @@ jobs:
                   applicationId "se.skotselytor.gps"
                   minSdk 26
                   targetSdk 35
-                  versionCode 6
-                  versionName "1.5"
+                  versionCode 8
+                  versionName "1.7"
               }
           }
           EOF
@@ -243,7 +243,7 @@ jobs:
               .title { flex:1; min-width:0; line-height:1.05; }
               .title b { display:block; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
               .title span { display:block; font-size:11px; opacity:.85; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-              button { border:0; border-radius:999px; padding:10px 11px; font-weight:800; font-size:12px; cursor:pointer; }
+              button { border:0; border-radius:999px; padding:9px 10px; font-weight:800; font-size:12px; cursor:pointer; }
               .btn { background:rgba(255,255,255,.16); color:white; }
               .gps { background:#22c55e; color:#052e16; }
               .tracking { background:#f59e0b !important; color:#451a03 !important; }
@@ -298,6 +298,48 @@ jobs:
               .hint { top:86px; background:#ef4444; }
               .gpsWarn { bottom:80px; background:#f59e0b; color:#451a03; }
               .hint.show, .gpsWarn.show { display:block; }
+              .centerCross {
+                position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+                z-index:17; pointer-events:none; width:24px; height:24px; display:none;
+              }
+              .centerCross.show { display:block; }
+              .screenGps {
+                position:fixed;
+                left:50%;
+                top:50%;
+                transform:translate(-50%,-50%);
+                z-index:90;
+                pointer-events:none;
+                display:none;
+                width:26px;
+                height:26px;
+                border-radius:999px;
+                background:#0ea5e9;
+                border:4px solid white;
+                box-shadow:0 3px 14px rgba(0,0,0,.35), 0 0 0 2px rgba(14,165,233,.35);
+              }
+              .screenGps.show { display:block; }
+              .screenGpsAccuracy {
+                position:fixed;
+                left:50%;
+                top:50%;
+                transform:translate(-50%,-50%);
+                z-index:89;
+                pointer-events:none;
+                display:none;
+                width:78px;
+                height:78px;
+                border-radius:999px;
+                background:rgba(14,165,233,.12);
+                border:2px solid rgba(14,165,233,.45);
+              }
+              .screenGpsAccuracy.show { display:block; }
+              .centerCross:before, .centerCross:after {
+                content:""; position:absolute; background:#ef4444; border-radius:2px;
+                box-shadow:0 0 0 2px white;
+              }
+              .centerCross:before { left:11px; top:0; width:2px; height:24px; }
+              .centerCross:after { left:0; top:11px; width:24px; height:2px; }
             </style>
           </head>
           <body>
@@ -310,12 +352,16 @@ jobs:
               </div>
               <button class="btn" id="pinBtn">Nål</button>
               <button class="btn" id="pinGpsBtn">Nål här</button>
+              <button class="btn" id="pinCenterTopBtn">Mitt</button>
               <button class="btn" id="trackBtn">Spåra</button>
               <button class="gps" id="gpsBtn">GPS</button>
             </div>
 
-            <div class="hint" id="pinHint">Nålläget aktivt – nästa tryck skapar nål</div>
+            <div class="hint" id="pinHint">Nålläget aktivt – tryck på kartan eller använd Mitt</div>
             <div class="gpsWarn" id="gpsWarn">GPS osäker – sparas ej</div>
+            <div class="centerCross" id="centerCross"></div>
+            <div class="screenGpsAccuracy" id="screenGpsAccuracy"></div>
+            <div class="screenGps" id="screenGps"></div>
 
             <div class="legend">
               <div id="gpsInfo">GPS: ej aktiv</div>
@@ -427,6 +473,7 @@ jobs:
                 let accGraphic = null;
                 let lineGraphic = null;
                 let lastGpsPoint = null;
+                let followGps = false;
 
                 const statuses = JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
                 let track = JSON.parse(localStorage.getItem(TRACK_KEY) || "[]");
@@ -472,6 +519,7 @@ jobs:
                 });
 
                 view.popupEnabled = false;
+                try { view.popup.autoOpenEnabled = false; } catch(_) {}
 
                 const locate = new Locate({
                   view,
@@ -481,11 +529,11 @@ jobs:
                   }
                 });
 
-                view.ui.add(locate, "bottom-left");
+                // Esri Locate-widget visas inte längre, så vi slipper två blå prickar.
 
                 view.when(() => {
                   try {
-                    webmap.layers.forEach(layer => {
+                    webmap.allLayers.forEach(layer => {
                       try { layer.popupEnabled = false; layer.popupTemplate = null; } catch(_) {}
                       if (layer.layers) {
                         layer.layers.forEach(sublayer => {
@@ -499,10 +547,11 @@ jobs:
                   showToast("Kartan är redo");
                 });
 
-                document.getElementById("gpsBtn").onclick = () => locate.locate();
+                document.getElementById("gpsBtn").onclick = centerOnGpsOrStart;
                 document.getElementById("trackBtn").onclick = toggleTrack;
                 document.getElementById("pinBtn").onclick = togglePinMode;
                 document.getElementById("pinGpsBtn").onclick = createPinAtGps;
+                document.getElementById("pinCenterTopBtn").onclick = createPinAtCenter;
                 document.getElementById("closeArea").onclick = () => document.getElementById("areaPanel").classList.remove("open");
                 document.getElementById("closePin").onclick = closePinPanel;
                 document.getElementById("movePinCenterBtn").onclick = () => {
@@ -545,6 +594,17 @@ jobs:
                 document.getElementById("savePinBtn").onclick = savePin;
                 document.getElementById("deletePinBtn").onclick = deletePin;
 
+                view.on("immediate-click", e => {
+                  if (addPinMode) {
+                    try { e.stopPropagation(); } catch(_) {}
+                    try { view.popup.close(); } catch(_) {}
+                    pendingPinGeometry = e.mapPoint.clone().toJSON();
+                    selectedPinId = null;
+                    openPinPanelForNew(pendingPinGeometry);
+                    setPinMode(false);
+                  }
+                });
+
                 view.on("click", async e => {
                   // Stäng ArcGIS egna popuprutor direkt. Vi använder egna paneler istället.
                   try { view.popup.close(); } catch(_) {}
@@ -572,9 +632,29 @@ jobs:
                   }
                 });
 
+                function centerOnGpsOrStart() {
+                  followGps = true;
+                  document.getElementById("screenGps").classList.add("show");
+                  document.getElementById("screenGpsAccuracy").classList.add("show");
+                  if (!tracking) startTrack();
+                  if (lastGpsPoint) {
+                    view.goTo({ center:[lastGpsPoint.lon,lastGpsPoint.lat], scale:view.scale || 900 }, { animate:true }).catch(()=>{});
+                    showToast("Följer GPS med fast skärmprick");
+                  } else {
+                    showToast("Startar GPS… vänta på första position");
+                  }
+                }
+
+                function createPinAtCenter() {
+                  selectedPinId = null;
+                  pendingPinGeometry = view.center.clone().toJSON();
+                  openPinPanelForNew(pendingPinGeometry);
+                  showToast("Nål i kartans mitt");
+                }
+
                 function createPinAtGps() {
                   if (!lastGpsPoint) {
-                    showToast("Tryck Spåra eller GPS först");
+                    showToast("Tryck Spåra/GPS först och vänta på position");
                     return;
                   }
                   selectedPinId = null;
@@ -615,6 +695,7 @@ jobs:
                   addPinMode = v;
                   document.getElementById("pinBtn").classList.toggle("pinMode", addPinMode);
                   document.getElementById("pinHint").classList.toggle("show", addPinMode);
+                  document.getElementById("centerCross").classList.toggle("show", addPinMode);
                   document.getElementById("pinBtn").textContent = addPinMode ? "Avbryt" : "Nål";
                 }
 
@@ -708,7 +789,7 @@ jobs:
                         type:"simple-marker",
                         style:p.status === "Fixad" ? "diamond" : "circle",
                         color: pinColor(p.type, p.status),
-                        size:24,
+                        size:28,
                         outline:{ color:[255,255,255,1], width:3 }
                       }
                     }));
@@ -731,19 +812,25 @@ jobs:
                     return;
                   }
                   tracking = true;
+                  followGps = true;
+                  document.getElementById("screenGps").classList.add("show");
+                  document.getElementById("screenGpsAccuracy").classList.add("show");
                   document.getElementById("trackBtn").classList.add("tracking");
                   document.getElementById("trackBtn").textContent = "Stoppa";
 
                   watchId = navigator.geolocation.watchPosition(onPos, err => {
                     showToast("GPS-fel: " + err.message);
                     stopTrack();
-                  }, { enableHighAccuracy:true, maximumAge:1000, timeout:15000 });
+                  }, { enableHighAccuracy:true, maximumAge:0, timeout:5000 });
 
                   showToast("Spårning startad");
                 }
 
                 function stopTrack() {
                   tracking = false;
+                  followGps = false;
+                  document.getElementById("screenGps").classList.remove("show");
+                  document.getElementById("screenGpsAccuracy").classList.remove("show");
                   if (watchId !== null) navigator.geolocation.clearWatch(watchId);
                   watchId = null;
                   document.getElementById("trackBtn").classList.remove("tracking");
@@ -766,6 +853,10 @@ jobs:
                   if (p.accuracy <= BAD_ACCURACY) {
                     drawGps(p);
                     lastGpsPoint = p;
+                    updateScreenGps(p);
+                    if (followGps) {
+                      view.goTo({ center:[p.lon,p.lat], scale:view.scale || 900 }, { animate:false }).catch(()=>{});
+                    }
                   }
 
                   if (p.accuracy > GOOD_ACCURACY) {
@@ -789,6 +880,25 @@ jobs:
                   redrawTrack();
                 }
 
+                function updateScreenGps(p) {
+                  const dot = document.getElementById("screenGps");
+                  const acc = document.getElementById("screenGpsAccuracy");
+                  if (!dot || !acc) return;
+                  dot.classList.add("show");
+                  acc.classList.add("show");
+
+                  // Skärm-cirkeln är bara en visuell indikator, inte exakt skalenlig.
+                  const px = Math.max(44, Math.min(150, Math.round((p.accuracy || 10) * 2)));
+                  acc.style.width = px + "px";
+                  acc.style.height = px + "px";
+
+                  if (p.accuracy > GOOD_ACCURACY) {
+                    dot.style.background = "#f59e0b";
+                  } else {
+                    dot.style.background = "#0ea5e9";
+                  }
+                }
+
                 function drawGps(p) {
                   if (gpsGraphic) view.graphics.remove(gpsGraphic);
                   if (accGraphic) view.graphics.remove(accGraphic);
@@ -802,7 +912,7 @@ jobs:
                       type:"simple-marker",
                       style:"circle",
                       color:[56,189,248,1],
-                      size:20,
+                      size:22,
                       outline:{ color:[255,255,255,1], width:4 }
                     }
                   });
