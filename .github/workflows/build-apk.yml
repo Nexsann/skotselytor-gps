@@ -71,8 +71,8 @@ jobs:
                   applicationId "se.skotselytor.gps"
                   minSdk 26
                   targetSdk 35
-                  versionCode 5
-                  versionName "1.4"
+                  versionCode 6
+                  versionName "1.5"
               }
           }
           EOF
@@ -314,7 +314,7 @@ jobs:
               <button class="gps" id="gpsBtn">GPS</button>
             </div>
 
-            <div class="hint" id="pinHint">Tryck på kartan där nålen ska sitta</div>
+            <div class="hint" id="pinHint">Nålläget aktivt – nästa tryck skapar nål</div>
             <div class="gpsWarn" id="gpsWarn">GPS osäker – sparas ej</div>
 
             <div class="legend">
@@ -449,6 +449,7 @@ jobs:
                   outFields:["*"],
                   opacity:0.18,
                   popupEnabled:false,
+                  popupTemplate:null,
                   renderer:{
                     type:"simple",
                     symbol:{
@@ -466,8 +467,11 @@ jobs:
                   container:"viewDiv",
                   map:webmap,
                   padding:{ top:70 },
-                  constraints:{ snapToZoom:false }
+                  constraints:{ snapToZoom:false },
+                  popupEnabled:false
                 });
+
+                view.popupEnabled = false;
 
                 const locate = new Locate({
                   view,
@@ -480,6 +484,16 @@ jobs:
                 view.ui.add(locate, "bottom-left");
 
                 view.when(() => {
+                  try {
+                    webmap.layers.forEach(layer => {
+                      try { layer.popupEnabled = false; layer.popupTemplate = null; } catch(_) {}
+                      if (layer.layers) {
+                        layer.layers.forEach(sublayer => {
+                          try { sublayer.popupEnabled = false; sublayer.popupTemplate = null; } catch(_) {}
+                        });
+                      }
+                    });
+                  } catch(_) {}
                   redrawTrack();
                   redrawPins();
                   showToast("Kartan är redo");
@@ -532,6 +546,9 @@ jobs:
                 document.getElementById("deletePinBtn").onclick = deletePin;
 
                 view.on("click", async e => {
+                  // Stäng ArcGIS egna popuprutor direkt. Vi använder egna paneler istället.
+                  try { view.popup.close(); } catch(_) {}
+
                   if (addPinMode) {
                     // I nålläge ska gräsytor ALDRIG fånga klicket.
                     pendingPinGeometry = e.mapPoint.clone().toJSON();
