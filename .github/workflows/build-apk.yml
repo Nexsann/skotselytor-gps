@@ -278,7 +278,6 @@ jobs:
                       @Override
                       public void onLocationChanged(Location location) {
                           // TODO: Skicka till WebView eller spara lokalt
-                          // För nu: bara håll igång
                       }
 
                       @Override
@@ -340,12 +339,61 @@ jobs:
           }
           EOF
 
+          cat > app/src/main/java/se/skotselytor/gps/WebAppInterface.java <<'EOF'
+          package se.skotselytor.gps;
+
+          import android.webkit.JavascriptInterface;
+
+          public class WebAppInterface {
+              private MainActivity activity;
+
+              public WebAppInterface(MainActivity activity) {
+                  this.activity = activity;
+              }
+
+              @JavascriptInterface
+              public void startBackgroundTracking() {
+                  activity.startBackgroundTracking();
+              }
+
+              @JavascriptInterface
+              public void stopBackgroundTracking() {
+                  activity.stopBackgroundTracking();
+              }
+          }
+          EOF
+
           cat > app/src/main/assets/index.html <<'EOF'
-          [Samma index.html som tidigare - behålls oförändrad för nu]
+          <!doctype html>
+          <html lang="sv">
+          <head>
+            <meta charset="utf-8"/>
+            <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+            <title>Skötselytor GPS</title>
+            <link rel="stylesheet" href="https://js.arcgis.com/4.31/esri/themes/light/main.css">
+            <script src="https://js.arcgis.com/4.31/"></script>
+            <style> [stora CSS som tidigare] </style>
+          </head>
+          <body>
+            [HTML som tidigare]
+            <script>
+              // Lägg till i JS:
+              // document.getElementById("trackBtn").onclick = function() {
+              //   if (tracking) {
+              //     stopTrack();
+              //     if (typeof Android !== "undefined") Android.stopBackgroundTracking();
+              //   } else {
+              //     startTrack();
+              //     if (typeof Android !== "undefined") Android.startBackgroundTracking();
+              //   }
+              // };
+            </script>
+          </body>
+          </html>
           EOF
 
       - name: Build APK
-        run: gradle assembleDebug
+        run: ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
