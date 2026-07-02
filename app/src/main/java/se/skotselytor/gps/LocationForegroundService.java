@@ -13,7 +13,6 @@ import android.location.LocationManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
-import androidx.annotation.Nullable;
 
 public class LocationForegroundService extends Service {
     private static final String CHANNEL_ID = "skotselytor_gps_channel";
@@ -88,7 +87,6 @@ public class LocationForegroundService extends Service {
         super.onDestroy();
     }
 
-    @Nullable
     @Override
     public IBinder onBind(Intent intent) {
         return null;
