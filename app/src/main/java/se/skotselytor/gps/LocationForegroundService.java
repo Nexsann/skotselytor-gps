@@ -22,38 +22,70 @@ public class LocationForegroundService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        createNotificationChannel();
-        startForeground(1, getNotification());
 
-        locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+        // Säkerhetsspärr: på Android 14+ kräver startForeground() med
+        // foregroundServiceType="location" att platsbehörighet redan är
+        // beviljad, annars kastas ett SecurityException som kraschar appen.
+        // Vi kontrollerar behörigheten först och avbryter tyst annars.
+        boolean hasLocationPermission =
+            checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
 
-        locationListener = new LocationListener() {
-            @Override
-            public void onLocationChanged(Location location) {
-                // Positionen hanteras redan av WebView:ns egen GPS-lyssnare
-                // (navigator.geolocation) medan appen är i förgrunden. Denna
-                // tjänst finns för att hålla platstjänsten vid liv och visa
-                // en notis när appen körs i bakgrunden.
+        if (!hasLocationPermission) {
+            stopSelf();
+            return;
+        }
+
+        try {
+            createNotificationChannel();
+            startForeground(1, getNotification());
+        } catch (Exception e) {
+            stopSelf();
+            return;
+        }
+
+        try {
+            locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+
+            locationListener = new LocationListener() {
+                @Override
+                public void onLocationChanged(Location location) {
+                    // Positionen hanteras redan av WebView:ns egen GPS-lyssnare
+                    // (navigator.geolocation) medan appen är i förgrunden. Denna
+                    // tjänst finns för att hålla platstjänsten vid liv och visa
+                    // en notis när appen körs i bakgrunden.
+                }
+
+                @Override
+                public void onStatusChanged(String provider, int status, Bundle extras) {}
+                @Override
+                public void onProviderEnabled(String provider) {}
+                @Override
+                public void onProviderDisabled(String provider) {}
+            };
+
+            if (locationManager != null) {
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 5000, 5, locationListener);
             }
-
-            @Override
-            public void onStatusChanged(String provider, int status, Bundle extras) {}
-            @Override
-            public void onProviderEnabled(String provider) {}
-            @Override
-            public void onProviderDisabled(String provider) {}
-        };
-
-        if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 5000, 5, locationListener);
+        } catch (Exception ignored) {
+            // Om plattjänsten inte kan startas fortsätter ändå notisen att
+            // visas; huvudappen använder ändå sin egen GPS-lyssnare.
         }
     }
 
     private Notification getNotification() {
         Intent notificationIntent = new Intent(this, MainActivity.class);
-        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
+        int flags = PendingIntent.FLAG_IMMUTABLE;
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, flags);
 
-        return new Notification.Builder(this, CHANNEL_ID)
+        Notification.Builder builder;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            builder = new Notification.Builder(this, CHANNEL_ID);
+        } else {
+            builder = new Notification.Builder(this);
+        }
+
+        return builder
                 .setContentTitle("Skötselytor GPS")
                 .setContentText("Spårning aktiv i bakgrunden")
                 .setSmallIcon(android.R.drawable.ic_menu_mylocation)
@@ -69,7 +101,9 @@ public class LocationForegroundService extends Service {
                     NotificationManager.IMPORTANCE_LOW
             );
             NotificationManager manager = getSystemService(NotificationManager.class);
-            manager.createNotificationChannel(serviceChannel);
+            if (manager != null) {
+                manager.createNotificationChannel(serviceChannel);
+            }
         }
     }
 
@@ -80,10 +114,16 @@ public class LocationForegroundService extends Service {
 
     @Override
     public void onDestroy() {
-        if (locationManager != null && locationListener != null) {
-            locationManager.removeUpdates(locationListener);
+        try {
+            if (locationManager != null && locationListener != null) {
+                locationManager.removeUpdates(locationListener);
+            }
+        } catch (Exception ignored) {
         }
-        stopForeground(true);
+        try {
+            stopForeground(true);
+        } catch (Exception ignored) {
+        }
         super.onDestroy();
     }
 
