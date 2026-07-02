@@ -7,111 +7,192 @@
   <link rel="stylesheet" href="https://js.arcgis.com/4.31/esri/themes/light/main.css">
   <script src="https://js.arcgis.com/4.31/"></script>
   <style>
+    :root {
+      color-scheme: dark;
+    }
     html, body, #viewDiv {
       margin:0; padding:0; height:100%; width:100%; overflow:hidden;
-      font-family:system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
       background:#0b1220;
+      /* Rendering-hintar: låter WebView/GPU:n rita om detta lager separat och
+         så smidigt enheten tillåter, i stället för att synkas mot resten av
+         sidan. Hjälper på 90/120Hz-skärmar. */
+      -webkit-font-smoothing:antialiased;
     }
+    #viewDiv { will-change: transform; }
+
     .topbar {
       position:fixed; top:0; left:0; right:0; z-index:20;
-      display:flex; gap:6px; align-items:center; padding:10px;
-      background:linear-gradient(90deg,#082e5c,#004851);
-      color:white; box-shadow:0 8px 20px rgba(0,0,0,.25);
+      display:flex; gap:8px; align-items:center;
+      padding:calc(env(safe-area-inset-top, 0px) + 10px) 12px 10px;
+      background:rgba(10,14,24,.72);
+      -webkit-backdrop-filter:blur(18px) saturate(150%);
+      backdrop-filter:blur(18px) saturate(150%);
+      border-bottom:1px solid rgba(255,255,255,.08);
+      color:white;
     }
-    .title { flex:1; min-width:0; line-height:1.05; }
-    .title b { display:block; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .title span { display:block; font-size:11px; opacity:.85; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    button { border:0; border-radius:999px; padding:10px 11px; font-weight:800; font-size:12px; cursor:pointer; }
-    .btn { background:rgba(255,255,255,.16); color:white; }
-    .gps { background:#22c55e; color:#052e16; }
-    .tracking { background:#f59e0b !important; color:#451a03 !important; }
-    .pinMode { background:#ef4444 !important; color:white !important; }
+    .brand { display:flex; align-items:center; gap:9px; flex:1; min-width:0; }
+    .brand-dot {
+      width:9px; height:9px; border-radius:50%; background:#22c55e; flex:none;
+      box-shadow:0 0 0 4px rgba(34,197,94,.18);
+    }
+    .brand-dot.off { background:#64748b; box-shadow:0 0 0 4px rgba(100,116,139,.18); }
+    .title { min-width:0; line-height:1.15; }
+    .title b { display:block; font-size:14.5px; font-weight:700; letter-spacing:-.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .title span { display:block; font-size:10.5px; color:rgba(255,255,255,.55); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+    .toolbar { display:flex; gap:6px; }
+    .iconbtn {
+      border:0; border-radius:12px; width:40px; height:40px;
+      display:flex; align-items:center; justify-content:center;
+      background:rgba(255,255,255,.08); color:white; cursor:pointer;
+      transition:background .15s ease, transform .1s ease;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .iconbtn:active { transform:scale(.92); }
+    .iconbtn svg { width:19px; height:19px; }
+    .iconbtn.active { background:#ef4444; color:white; }
+    .iconbtn.tracking { background:#f59e0b; color:#1c1300; }
+    .iconbtn.gps-on { background:#22c55e; color:#052e16; }
+
     .legend {
-      position:fixed; top:76px; right:8px; z-index:18;
-      background:rgba(255,255,255,.94); color:#0f172a;
-      border-radius:16px; padding:9px 11px; box-shadow:0 10px 28px rgba(0,0,0,.18);
-      font-size:12px; line-height:1.65;
+      position:fixed; z-index:18;
+      top:calc(env(safe-area-inset-top, 0px) + 62px); right:10px;
+      background:rgba(15,20,30,.72);
+      -webkit-backdrop-filter:blur(16px) saturate(150%);
+      backdrop-filter:blur(16px) saturate(150%);
+      color:white; border:1px solid rgba(255,255,255,.08);
+      border-radius:16px; padding:10px 12px;
+      font-size:11.5px; line-height:1.75;
+      box-shadow:0 12px 28px rgba(0,0,0,.28);
     }
+    .legend .gpsRow { font-weight:700; margin-bottom:4px; opacity:.9; }
+    .legend hr { border:0; border-top:1px solid rgba(255,255,255,.12); margin:5px 0; }
+    .legend .row { display:flex; align-items:center; gap:7px; }
+    .legend .sw { width:9px; height:9px; border-radius:50%; flex:none; }
+
     .panel {
-      position:fixed; left:8px; right:8px; bottom:8px; z-index:30;
-      background:white; border-radius:18px; box-shadow:0 14px 36px rgba(0,0,0,.28);
-      display:none; overflow:hidden; max-height:58vh;
+      position:fixed; left:0; right:0; bottom:0; z-index:30;
+      background:#111826; color:white;
+      border-radius:22px 22px 0 0;
+      box-shadow:0 -12px 40px rgba(0,0,0,.4);
+      display:none; overflow:hidden; max-height:62vh;
+      border-top:1px solid rgba(255,255,255,.08);
+      transform:translateY(8px);
+      opacity:0;
+      transition:transform .18s cubic-bezier(.2,.8,.2,1), opacity .18s ease;
+      padding-bottom:env(safe-area-inset-bottom, 0px);
     }
-    .panel.open { display:block; }
+    .panel.open { display:block; transform:translateY(0); opacity:1; }
     .panelHead {
-      padding:13px; border-bottom:1px solid #e2e8f0;
+      padding:16px 16px 12px; border-bottom:1px solid rgba(255,255,255,.08);
       display:flex; justify-content:space-between; gap:10px; align-items:flex-start;
     }
-    .panelHead h2 { margin:0; font-size:17px; }
-    .panelHead small { display:block; color:#64748b; margin-top:3px; }
-    .panelBody { padding:13px; overflow:auto; max-height:calc(58vh - 62px); }
-    .meta { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
-    .meta div { background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:8px; min-width:0; }
-    .meta b { display:block; font-size:10px; color:#64748b; text-transform:uppercase; }
-    .meta span { display:block; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    input, textarea, select {
-      width:100%; box-sizing:border-box; border:1px solid #cbd5e1;
-      border-radius:12px; padding:11px; margin-top:8px; font:inherit; background:white;
+    .panelHandle {
+      width:36px; height:4px; border-radius:99px; background:rgba(255,255,255,.2);
+      margin:8px auto 0;
     }
+    .panelHead h2 { margin:0; font-size:16.5px; font-weight:700; }
+    .panelHead small { display:block; color:rgba(255,255,255,.5); margin-top:3px; font-size:12px; }
+    .panelHead button.close {
+      border:0; background:rgba(255,255,255,.08); color:white;
+      width:30px; height:30px; border-radius:50%; font-size:16px; cursor:pointer;
+      flex:none;
+    }
+    .panelBody { padding:14px 16px; overflow:auto; max-height:calc(62vh - 70px); }
+    .meta { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
+    .meta div { background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.08); border-radius:12px; padding:8px 10px; min-width:0; }
+    .meta b { display:block; font-size:9.5px; color:rgba(255,255,255,.45); text-transform:uppercase; letter-spacing:.04em; }
+    .meta span { display:block; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+    input, textarea, select {
+      width:100%; box-sizing:border-box; border:1px solid rgba(255,255,255,.12);
+      border-radius:12px; padding:11px; margin-top:8px; font:inherit; font-size:14px;
+      background:rgba(255,255,255,.05); color:white;
+    }
+    input::placeholder, textarea::placeholder { color:rgba(255,255,255,.35); }
+    select { -webkit-appearance:none; appearance:none; }
     .statuses { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; }
-    .statuses button.active { outline:3px solid #0f172a; }
-    .save { width:100%; margin-top:10px; background:#082e5c; color:white; border-radius:13px; }
-    .delete { width:100%; margin-top:8px; background:#fee2e2; color:#7f1d1d; border-radius:13px; }
+    .statuses button {
+      border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.05); color:white;
+      border-radius:13px; padding:11px; font-weight:700; font-size:13px; cursor:pointer;
+    }
+    .statuses button.active { outline:2px solid #38bdf8; background:rgba(56,189,248,.15); }
+    .save { width:100%; margin-top:12px; background:#2563eb; color:white; border-radius:13px; padding:13px; font-weight:800; border:0; cursor:pointer; }
+    .delete { width:100%; margin-top:8px; background:rgba(239,68,68,.15); color:#fca5a5; border-radius:13px; padding:12px; font-weight:700; border:0; cursor:pointer; }
     .row { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
-    .mini { background:#e2e8f0; color:#0f172a; border-radius:13px; }
+    .mini { background:rgba(255,255,255,.08); color:white; border-radius:13px; border:0; padding:11px; font-weight:700; font-size:12.5px; cursor:pointer; }
     .hidden { display:none !important; }
     .toast {
-      position:fixed; left:50%; bottom:24px; transform:translateX(-50%);
-      z-index:80; background:#020617; color:white; border-radius:999px;
-      padding:11px 16px; font-weight:800; opacity:0; transition:.2s; white-space:nowrap;
+      position:fixed; left:50%; bottom:28px; transform:translateX(-50%) translateY(6px);
+      z-index:80; background:rgba(2,6,23,.92); color:white; border-radius:999px;
+      padding:11px 18px; font-weight:700; font-size:13px; opacity:0;
+      transition:opacity .18s ease, transform .18s ease; white-space:nowrap;
+      border:1px solid rgba(255,255,255,.1);
     }
-    .toast.show { opacity:1; }
+    .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
     .hint, .gpsWarn {
       position:fixed; left:50%; transform:translateX(-50%);
       z-index:70; color:white; border-radius:999px;
-      padding:10px 14px; font-size:13px; font-weight:900;
-      box-shadow:0 10px 25px rgba(0,0,0,.25);
+      padding:10px 16px; font-size:12.5px; font-weight:700;
+      box-shadow:0 10px 25px rgba(0,0,0,.3);
       display:none;
     }
-    .hint { top:86px; background:#ef4444; }
-    .gpsWarn { bottom:80px; background:#f59e0b; color:#451a03; }
+    .hint { top:calc(env(safe-area-inset-top, 0px) + 68px); background:#ef4444; }
+    .gpsWarn { bottom:88px; background:#f59e0b; color:#1c1300; }
     .hint.show, .gpsWarn.show { display:block; }
+
+    /* Kompassnål som visas ovanpå GPS-lägesknappen när kartan följer riktning */
+    .compass { transition: transform .12s linear; }
   </style>
 </head>
 <body>
   <div id="viewDiv"></div>
 
   <div class="topbar">
-    <div class="title">
-      <b>Skötselytor GPS</b>
-      <span>GPS, spårning, status och nålar</span>
+    <div class="brand">
+      <div class="brand-dot off" id="gpsDot"></div>
+      <div class="title">
+        <b>Skötselytor GPS</b>
+        <span id="statusLine">GPS ej aktiv</span>
+      </div>
     </div>
-    <button class="btn" id="pinBtn">Nål</button>
-    <button class="btn" id="pinGpsBtn">Nål här</button>
-    <button class="btn" id="trackBtn">Spåra</button>
-    <button class="gps" id="gpsBtn">GPS</button>
+    <div class="toolbar">
+      <button class="iconbtn" id="pinBtn" title="Ny nål" aria-label="Ny nål">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.4"/></svg>
+      </button>
+      <button class="iconbtn" id="pinGpsBtn" title="Nål på min position" aria-label="Nål på min position">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.4"/><path d="M12 6v2M12 12v2M9 10h2M13 10h2"/></svg>
+      </button>
+      <button class="iconbtn" id="trackBtn" title="Starta/stoppa spårning" aria-label="Starta/stoppa spårning">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/></svg>
+      </button>
+      <button class="iconbtn" id="gpsBtn" title="Centrera på GPS" aria-label="Centrera på GPS">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="compass" id="gpsIcon"><path d="M12 3l2.4 7.6L22 13l-7.6 2.4L12 23l-2.4-7.6L2 13l7.6-2.4L12 3z"/></svg>
+      </button>
+    </div>
   </div>
 
-  <div class="hint" id="pinHint">Nålläget aktivt – tryck på kartan, eller använd Mitt</div>
+  <div class="hint" id="pinHint">Nålläge aktivt – tryck på kartan för att placera</div>
   <div class="gpsWarn" id="gpsWarn">GPS osäker – sparas ej</div>
 
   <div class="legend">
-    <div id="gpsInfo">GPS: ej aktiv</div>
+    <div class="gpsRow" id="gpsInfo">GPS: ej aktiv</div>
     <hr>
-    <div>📍 Egna nålar</div>
-    <div>⚪ Ej klippt</div>
-    <div>🟠 Pågår</div>
-    <div>🟢 Klippt</div>
-    <div>🔴 Problem</div>
+    <div class="row"><span class="sw" style="background:#38bdf8"></span> Egna nålar</div>
+    <div class="row"><span class="sw" style="background:#e2e8f0"></span> Ej klippt</div>
+    <div class="row"><span class="sw" style="background:#f59e0b"></span> Pågår</div>
+    <div class="row"><span class="sw" style="background:#22c55e"></span> Klippt</div>
+    <div class="row"><span class="sw" style="background:#ef4444"></span> Problem</div>
   </div>
 
   <div class="panel" id="areaPanel">
+    <div class="panelHandle"></div>
     <div class="panelHead">
       <div>
         <h2 id="areaTitle">Vald yta</h2>
         <small>Klippstatus för vald skötselyta</small>
       </div>
-      <button id="closeArea">×</button>
+      <button class="close" id="closeArea">×</button>
     </div>
     <div class="panelBody">
       <div class="meta">
@@ -133,12 +214,13 @@
   </div>
 
   <div class="panel" id="pinPanel">
+    <div class="panelHandle"></div>
     <div class="panelHead">
       <div>
         <h2 id="pinTitle">Egen nål</h2>
         <small id="pinSub">Kommentar/avvikelse på kartan</small>
       </div>
-      <button id="closePin">×</button>
+      <button class="close" id="closePin">×</button>
     </div>
     <div class="panelBody">
       <div class="meta">
@@ -175,11 +257,10 @@
       "esri/views/MapView",
       "esri/layers/FeatureLayer",
       "esri/layers/GraphicsLayer",
-      "esri/widgets/Locate",
       "esri/Graphic",
       "esri/geometry/Polyline",
       "esri/geometry/geometryEngine"
-    ], function(esriConfig, WebMap, MapView, FeatureLayer, GraphicsLayer, Locate, Graphic, Polyline, geometryEngine) {
+    ], function(esriConfig, WebMap, MapView, FeatureLayer, GraphicsLayer, Graphic, Polyline, geometryEngine) {
       esriConfig.portalUrl = "https://kartor.linkoping.se/portal";
 
       const WEBMAP_ID = "4811ba982b9e4a97b01cf4353224374b";
@@ -194,12 +275,13 @@
       const IMPOSSIBLE_JUMP_METERS = 70;
       const MIN_TRACK_DISTANCE_METERS = 3;
 
-      // Prestandajustering: hur ofta (ms) den tunga noggrannhetscirkeln
-      // (geodesicBuffer) och GPS-punkten faktiskt ritas om. GPS-positionen
-      // uppdateras fortfarande löpande internt (för spårning), men den
-      // dyra ritningen på kartan begränsas för att minska lagg.
-      const GPS_REDRAW_INTERVAL_MS = 1500;
-      let lastGpsDrawAt = 0;
+      // Hur ofta (ms) den tunga noggrannhetscirkeln räknas om. GPS-punkten
+      // själv animeras separat och mycket oftare (se ANIM_FRAME_MS).
+      const ACCURACY_REDRAW_INTERVAL_MS = 1200;
+
+      // Mjuk animering av GPS-punkten mellan två mätningar, likt Google Maps,
+      // i stället för att hoppa direkt till varje ny koordinat.
+      const ANIM_DURATION_MS = 450;
 
       let selectedArea = null;
       let selectedPinId = null;
@@ -209,18 +291,25 @@
       let tracking = false;
       let addPinMode = false;
       let followGps = false;
+      let rotateWithHeading = false;
       let gpsGraphic = null;
       let accGraphic = null;
       let lineGraphic = null;
       let lastGpsPoint = null;
+      let lastHeading = null;
+
+      // Animationstillstånd för mjuk GPS-rörelse
+      let animFrom = null;
+      let animTo = null;
+      let animStart = 0;
+      let animRAF = null;
+      let lastAccuracyDrawAt = 0;
 
       const statuses = JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
       let track = JSON.parse(localStorage.getItem(TRACK_KEY) || "[]");
       let pins = JSON.parse(localStorage.getItem(PINS_KEY) || "[]");
 
       const statusLayer = new GraphicsLayer({ title:"Klippstatus" });
-      // GPS och nålar ritas i view.graphics istället för vanliga lager.
-      // Det gör att de alltid hamnar överst, även ovanpå ArcGIS MapServer-lager.
       const trackLayer = new GraphicsLayer({ title:"GPS-spår" });
 
       const webmap = new WebMap({
@@ -246,29 +335,18 @@
         }
       });
 
-      // Skötselytor och spår som lager. Nålar/GPS läggs i view.graphics för att alltid ligga överst.
       webmap.layers.addMany([skotselLayer, statusLayer, trackLayer]);
 
       const view = new MapView({
         container:"viewDiv",
         map:webmap,
         padding:{ top:70 },
-        constraints:{ snapToZoom:false },
+        constraints:{ snapToZoom:false, rotationEnabled:true },
         popupEnabled:false
       });
 
       view.popupEnabled = false;
       try { view.popup.autoOpenEnabled = false; } catch(_) {}
-
-      const locate = new Locate({
-        view,
-        useHeadingEnabled:true,
-        goToOverride:function(view, options){
-          return view.goTo({ target: options.target.target || options.target, scale: view.scale || 900 });
-        }
-      });
-
-      // Esri Locate-widget visas inte. Vi använder egen GPS-följning.
 
       view.when(() => {
         try {
@@ -286,11 +364,12 @@
         showToast("Kartan är redo");
       });
 
-      document.getElementById("gpsBtn").onclick = centerOnGpsOrStart;
+      // ---------- Knappar ----------
+      document.getElementById("gpsBtn").onclick = onGpsButtonTap;
       document.getElementById("trackBtn").onclick = toggleTrack;
       document.getElementById("pinBtn").onclick = togglePinMode;
       document.getElementById("pinGpsBtn").onclick = createPinAtGps;
-      document.getElementById("closeArea").onclick = () => document.getElementById("areaPanel").classList.remove("open");
+      document.getElementById("closeArea").onclick = () => closeAreaPanel();
       document.getElementById("closePin").onclick = closePinPanel;
       document.getElementById("movePinCenterBtn").onclick = () => {
         pendingPinGeometry = view.center.clone().toJSON();
@@ -332,31 +411,19 @@
       document.getElementById("savePinBtn").onclick = savePin;
       document.getElementById("deletePinBtn").onclick = deletePin;
 
-      view.on("pointer-down", e => {
-        if (!addPinMode) return;
-        try { e.stopPropagation(); } catch(_) {}
-        try { view.popup.close(); } catch(_) {}
-        const mapPoint = view.toMap({ x:e.x, y:e.y });
-        if (!mapPoint) {
-          showToast("Kunde inte läsa kartpunkt");
-          return;
-        }
-        pendingPinGeometry = mapPoint.clone().toJSON();
-        selectedPinId = null;
-        openPinPanelForNew(pendingPinGeometry);
-        setPinMode(false);
-      });
-
+      // ---------- Klick på kartan: EN enda hanterare (view.on("click")) ----------
+      // Tidigare fanns både "pointer-down" och "click"-hanterare som båda
+      // reagerade på samma tryck, vilket gjorde att nålläget stängdes av sig
+      // själv innan panelen hann öppnas ordentligt. Nu hanteras allt i en
+      // enda händelse för att undvika dubbeltriggring.
       view.on("click", async e => {
-        // Stäng ArcGIS egna popuprutor direkt. Vi använder egna paneler istället.
         try { view.popup.close(); } catch(_) {}
 
         if (addPinMode) {
-          // I nålläge ska gräsytor ALDRIG fånga klicket.
           pendingPinGeometry = e.mapPoint.clone().toJSON();
           selectedPinId = null;
-          openPinPanelForNew(pendingPinGeometry);
           setPinMode(false);
+          openPinPanelForNew(pendingPinGeometry);
           return;
         }
 
@@ -374,6 +441,17 @@
         }
       });
 
+      // Om användaren själv drar/nyper i kartan slår vi av auto-följning och
+      // auto-rotation, precis som i Google Maps, så kartan inte "rycker"
+      // tillbaka medan man tittar runt.
+      view.on("drag", () => {
+        if (followGps) {
+          followGps = false;
+          rotateWithHeading = false;
+          document.getElementById("gpsBtn").classList.remove("gps-on");
+        }
+      });
+
       function createPinAtGps() {
         if (!lastGpsPoint) {
           showToast("Tryck Spåra eller GPS först och vänta på position");
@@ -388,26 +466,24 @@
         return { type:"point", longitude:p.lon, latitude:p.lat, spatialReference:{ wkid:4326 } };
       }
 
-      function centerOnGpsOrStart() {
+      function onGpsButtonTap() {
         followGps = true;
+        rotateWithHeading = true;
+        document.getElementById("gpsBtn").classList.add("gps-on");
         if (!tracking) startTrack();
         if (lastGpsPoint) {
-          view.goTo({ center:[lastGpsPoint.lon,lastGpsPoint.lat], scale:view.scale || 900 }, { animate:true }).catch(()=>{});
+          view.goTo({
+            center:[lastGpsPoint.lon, lastGpsPoint.lat],
+            scale: Math.min(view.scale || 900, 900)
+          }, { animate:true, duration:400 }).catch(()=>{});
           showToast("Följer GPS");
         } else {
           showToast("Startar GPS… vänta på position");
         }
       }
 
-      function createPinAtCenter() {
-        selectedPinId = null;
-        pendingPinGeometry = view.center.clone().toJSON();
-        openPinPanelForNew(pendingPinGeometry);
-        showToast("Nål i kartans mitt");
-      }
-
       function openAreaPanel(g) {
-        document.getElementById("pinPanel").classList.remove("open");
+        closePinPanel();
         const a = g.attributes || {};
         const id = a.OBJECTID;
         const saved = statuses[id];
@@ -423,6 +499,11 @@
         document.getElementById("areaPanel").classList.add("open");
       }
 
+      function closeAreaPanel() {
+        document.getElementById("areaPanel").classList.remove("open");
+        selectedArea = null;
+      }
+
       function markAreaStatus() {
         document.querySelectorAll("[data-status]").forEach(b => {
           b.classList.toggle("active", b.dataset.status === areaStatus);
@@ -433,13 +514,12 @@
 
       function setPinMode(v) {
         addPinMode = v;
-        document.getElementById("pinBtn").classList.toggle("pinMode", addPinMode);
+        document.getElementById("pinBtn").classList.toggle("active", addPinMode);
         document.getElementById("pinHint").classList.toggle("show", addPinMode);
-        document.getElementById("pinBtn").textContent = addPinMode ? "Avbryt" : "Nål";
       }
 
       function openPinPanelForNew(geom) {
-        document.getElementById("areaPanel").classList.remove("open");
+        closeAreaPanel();
         document.getElementById("pinTitle").textContent = "Ny nål";
         document.getElementById("pinSub").textContent = "Spara kommentar på vald plats";
         updatePinCoordsText(geom);
@@ -456,7 +536,7 @@
         selectedPinId = id;
         pendingPinGeometry = p.geometry;
 
-        document.getElementById("areaPanel").classList.remove("open");
+        closeAreaPanel();
         document.getElementById("pinTitle").textContent = p.type || "Egen nål";
         document.getElementById("pinSub").textContent = p.createdAt ? "Skapad: " + new Date(p.createdAt).toLocaleString("sv-SE") : "Sparad nål";
         updatePinCoordsText(p.geometry);
@@ -476,7 +556,10 @@
       }
 
       function savePin() {
-        if (!pendingPinGeometry) return;
+        if (!pendingPinGeometry) {
+          showToast("Ingen plats vald för nålen");
+          return;
+        }
 
         const data = {
           id:selectedPinId || ("pin_" + Date.now()),
@@ -516,7 +599,9 @@
       }
 
       function redrawPins() {
-        const oldPins = view.graphics.items.filter(g => g.attributes && g.attributes.__type === "pin");
+        const oldPins = view.graphics.items.filter(g => g.attributes && g.attributes.__type === "pin").toArray
+          ? view.graphics.items.filter(g => g.attributes && g.attributes.__type === "pin").toArray()
+          : view.graphics.items.filter(g => g.attributes && g.attributes.__type === "pin");
         oldPins.forEach(g => view.graphics.remove(g));
 
         for (const p of pins) {
@@ -540,9 +625,10 @@
         if (type === "Handjagare krävs") return [245,158,11,0.95];
         if (type === "Går ej klippa") return [239,68,68,0.95];
         if (type === "Hinder") return [168,85,247,0.95];
-        return [14,165,233,0.95];
+        return [56,189,248,0.95];
       }
 
+      // ---------- GPS-spårning ----------
       function toggleTrack() { tracking ? stopTrack() : startTrack(); }
 
       function startTrack() {
@@ -551,18 +637,13 @@
           return;
         }
         tracking = true;
-        followGps = true;
         document.getElementById("trackBtn").classList.add("tracking");
-        document.getElementById("trackBtn").textContent = "Stoppa";
+        document.getElementById("gpsDot").classList.remove("off");
 
-        // Prestanda: maximumAge:2000 gör att webbläsaren kan återanvända en
-        // nyligen uppmätt position i stället för att alltid tvinga fram en
-        // helt färsk GPS-fixering, vilket minskar belastningen märkbart på
-        // äldre telefoner utan att påverka precisionen nämnvärt.
         watchId = navigator.geolocation.watchPosition(onPos, err => {
           showToast("GPS-fel: " + err.message);
           stopTrack();
-        }, { enableHighAccuracy:true, maximumAge:2000, timeout:8000 });
+        }, { enableHighAccuracy:true, maximumAge:1000, timeout:8000 });
 
         if (typeof Android !== "undefined" && Android.startBackgroundTracking) {
           try { Android.startBackgroundTracking(); } catch(_) {}
@@ -574,10 +655,12 @@
       function stopTrack() {
         tracking = false;
         followGps = false;
+        rotateWithHeading = false;
         if (watchId !== null) navigator.geolocation.clearWatch(watchId);
         watchId = null;
         document.getElementById("trackBtn").classList.remove("tracking");
-        document.getElementById("trackBtn").textContent = "Spåra";
+        document.getElementById("gpsBtn").classList.remove("gps-on");
+        document.getElementById("gpsDot").classList.add("off");
 
         if (typeof Android !== "undefined" && Android.stopBackgroundTracking) {
           try { Android.stopBackgroundTracking(); } catch(_) {}
@@ -593,16 +676,31 @@
           lon:c.longitude,
           accuracy:Math.round(c.accuracy || 0),
           heading: Number.isFinite(c.heading) ? c.heading : null,
+          speed: Number.isFinite(c.speed) ? c.speed : null,
           time:new Date(pos.timestamp || Date.now()).toISOString()
         };
 
         document.getElementById("gpsInfo").textContent = "GPS: ±" + p.accuracy + " m";
+        document.getElementById("statusLine").textContent = tracking
+          ? ("Spårar · ±" + p.accuracy + " m")
+          : ("GPS ±" + p.accuracy + " m");
 
         if (p.accuracy <= BAD_ACCURACY) {
-          drawGps(p);
+          animateGpsTo(p);
           lastGpsPoint = p;
+
+          // Kartrotation efter färdriktning, likt Google Maps. Endast när
+          // användaren aktivt följer GPS (gpsBtn) och vi har en riktning
+          // (antingen från kompassen eller beräknad ur rörelsen).
+          if (p.heading !== null && p.speed !== null && p.speed > 0.5) {
+            lastHeading = p.heading;
+          }
+          if (rotateWithHeading && lastHeading !== null) {
+            view.rotation = 360 - lastHeading;
+            document.getElementById("gpsIcon").style.transform = "rotate(" + (-(360 - lastHeading) + (360 - lastHeading)) + "deg)";
+          }
           if (followGps) {
-            view.goTo({ center:[p.lon,p.lat] }, { animate:false }).catch(()=>{});
+            view.goTo({ center:[p.lon, p.lat] }, { animate:false }).catch(()=>{});
           }
         }
 
@@ -627,19 +725,16 @@
         redrawTrack();
       }
 
-      function drawGps(p) {
-        const now = performance.now();
-        const point = { type:"point", longitude:p.lon, latitude:p.lat, spatialReference:{ wkid:4326 } };
+      // Mjuk animering av GPS-punkten mellan förra och nya positionen,
+      // uppdaterad varje frame (requestAnimationFrame) i stället för att
+      // hoppa direkt till den nya koordinaten. Ger ett flyt som känns
+      // närmare Google Maps även om själva GPS-mätningarna kommer glesare.
+      function animateGpsTo(p) {
+        const newPoint = { type:"point", longitude:p.lon, latitude:p.lat, spatialReference:{ wkid:4326 } };
 
-        // Prestanda: flytta befintlig grafik i stället för att skapa nya
-        // Graphic-objekt varje gång positionen ändras. Att lägga till/ta bort
-        // grafik i view.graphics är betydligt dyrare än att bara sätta
-        // geometry på ett redan existerande objekt.
-        if (gpsGraphic) {
-          gpsGraphic.geometry = point;
-        } else {
+        if (!gpsGraphic) {
           gpsGraphic = new Graphic({
-            geometry:point,
+            geometry:newPoint,
             attributes:{ __type:"gps" },
             symbol:{
               type:"simple-marker",
@@ -650,13 +745,40 @@
             }
           });
           view.graphics.add(gpsGraphic);
+          animFrom = { lon:p.lon, lat:p.lat };
+          animTo = { lon:p.lon, lat:p.lat };
+        } else {
+          animFrom = animTo || { lon:p.lon, lat:p.lat };
+          animTo = { lon:p.lon, lat:p.lat };
         }
 
-        // Prestanda: den geodesiska noggrannhetscirkeln är en tung beräkning.
-        // Begränsa hur ofta den räknas om och ritas, i stället för varje
-        // enskild GPS-uppdatering (som kan komma flera gånger per sekund).
-        if (now - lastGpsDrawAt < GPS_REDRAW_INTERVAL_MS) return;
-        lastGpsDrawAt = now;
+        animStart = performance.now();
+        if (animRAF) cancelAnimationFrame(animRAF);
+        stepAnim();
+
+        maybeRedrawAccuracy(p, newPoint);
+      }
+
+      function stepAnim() {
+        const now = performance.now();
+        const t = Math.min(1, (now - animStart) / ANIM_DURATION_MS);
+        const ease = t < .5 ? 2*t*t : 1 - Math.pow(-2*t+2,2)/2; // easeInOutQuad
+        const lon = animFrom.lon + (animTo.lon - animFrom.lon) * ease;
+        const lat = animFrom.lat + (animTo.lat - animFrom.lat) * ease;
+
+        if (gpsGraphic) {
+          gpsGraphic.geometry = { type:"point", longitude:lon, latitude:lat, spatialReference:{ wkid:4326 } };
+        }
+
+        if (t < 1) {
+          animRAF = requestAnimationFrame(stepAnim);
+        }
+      }
+
+      function maybeRedrawAccuracy(p, point) {
+        const now = performance.now();
+        if (now - lastAccuracyDrawAt < ACCURACY_REDRAW_INTERVAL_MS) return;
+        lastAccuracyDrawAt = now;
 
         try {
           const circle = geometryEngine.geodesicBuffer(point, Math.max(p.accuracy,5), "meters");
