@@ -1,0 +1,737 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <title>Skötselytor GPS</title>
+  <link rel="stylesheet" href="https://js.arcgis.com/4.31/esri/themes/light/main.css">
+  <script src="https://js.arcgis.com/4.31/"></script>
+  <style>
+    html, body, #viewDiv {
+      margin:0; padding:0; height:100%; width:100%; overflow:hidden;
+      font-family:system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:#0b1220;
+    }
+    .topbar {
+      position:fixed; top:0; left:0; right:0; z-index:20;
+      display:flex; gap:6px; align-items:center; padding:10px;
+      background:linear-gradient(90deg,#082e5c,#004851);
+      color:white; box-shadow:0 8px 20px rgba(0,0,0,.25);
+    }
+    .title { flex:1; min-width:0; line-height:1.05; }
+    .title b { display:block; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .title span { display:block; font-size:11px; opacity:.85; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    button { border:0; border-radius:999px; padding:10px 11px; font-weight:800; font-size:12px; cursor:pointer; }
+    .btn { background:rgba(255,255,255,.16); color:white; }
+    .gps { background:#22c55e; color:#052e16; }
+    .tracking { background:#f59e0b !important; color:#451a03 !important; }
+    .pinMode { background:#ef4444 !important; color:white !important; }
+    .legend {
+      position:fixed; top:76px; right:8px; z-index:18;
+      background:rgba(255,255,255,.94); color:#0f172a;
+      border-radius:16px; padding:9px 11px; box-shadow:0 10px 28px rgba(0,0,0,.18);
+      font-size:12px; line-height:1.65;
+    }
+    .panel {
+      position:fixed; left:8px; right:8px; bottom:8px; z-index:30;
+      background:white; border-radius:18px; box-shadow:0 14px 36px rgba(0,0,0,.28);
+      display:none; overflow:hidden; max-height:58vh;
+    }
+    .panel.open { display:block; }
+    .panelHead {
+      padding:13px; border-bottom:1px solid #e2e8f0;
+      display:flex; justify-content:space-between; gap:10px; align-items:flex-start;
+    }
+    .panelHead h2 { margin:0; font-size:17px; }
+    .panelHead small { display:block; color:#64748b; margin-top:3px; }
+    .panelBody { padding:13px; overflow:auto; max-height:calc(58vh - 62px); }
+    .meta { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
+    .meta div { background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:8px; min-width:0; }
+    .meta b { display:block; font-size:10px; color:#64748b; text-transform:uppercase; }
+    .meta span { display:block; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    input, textarea, select {
+      width:100%; box-sizing:border-box; border:1px solid #cbd5e1;
+      border-radius:12px; padding:11px; margin-top:8px; font:inherit; background:white;
+    }
+    .statuses { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; }
+    .statuses button.active { outline:3px solid #0f172a; }
+    .save { width:100%; margin-top:10px; background:#082e5c; color:white; border-radius:13px; }
+    .delete { width:100%; margin-top:8px; background:#fee2e2; color:#7f1d1d; border-radius:13px; }
+    .row { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
+    .mini { background:#e2e8f0; color:#0f172a; border-radius:13px; }
+    .hidden { display:none !important; }
+    .toast {
+      position:fixed; left:50%; bottom:24px; transform:translateX(-50%);
+      z-index:80; background:#020617; color:white; border-radius:999px;
+      padding:11px 16px; font-weight:800; opacity:0; transition:.2s; white-space:nowrap;
+    }
+    .toast.show { opacity:1; }
+    .hint, .gpsWarn {
+      position:fixed; left:50%; transform:translateX(-50%);
+      z-index:70; color:white; border-radius:999px;
+      padding:10px 14px; font-size:13px; font-weight:900;
+      box-shadow:0 10px 25px rgba(0,0,0,.25);
+      display:none;
+    }
+    .hint { top:86px; background:#ef4444; }
+    .gpsWarn { bottom:80px; background:#f59e0b; color:#451a03; }
+    .hint.show, .gpsWarn.show { display:block; }
+  </style>
+</head>
+<body>
+  <div id="viewDiv"></div>
+
+  <div class="topbar">
+    <div class="title">
+      <b>Skötselytor GPS</b>
+      <span>GPS, spårning, status och nålar</span>
+    </div>
+    <button class="btn" id="pinBtn">Nål</button>
+    <button class="btn" id="pinGpsBtn">Nål här</button>
+    <button class="btn" id="trackBtn">Spåra</button>
+    <button class="gps" id="gpsBtn">GPS</button>
+  </div>
+
+  <div class="hint" id="pinHint">Nålläget aktivt – tryck på kartan, eller använd Mitt</div>
+  <div class="gpsWarn" id="gpsWarn">GPS osäker – sparas ej</div>
+
+  <div class="legend">
+    <div id="gpsInfo">GPS: ej aktiv</div>
+    <hr>
+    <div>📍 Egna nålar</div>
+    <div>⚪ Ej klippt</div>
+    <div>🟠 Pågår</div>
+    <div>🟢 Klippt</div>
+    <div>🔴 Problem</div>
+  </div>
+
+  <div class="panel" id="areaPanel">
+    <div class="panelHead">
+      <div>
+        <h2 id="areaTitle">Vald yta</h2>
+        <small>Klippstatus för vald skötselyta</small>
+      </div>
+      <button id="closeArea">×</button>
+    </div>
+    <div class="panelBody">
+      <div class="meta">
+        <div><b>ID</b><span id="mId">-</span></div>
+        <div><b>Typ</b><span id="mType">-</span></div>
+        <div><b>Team</b><span id="mTeam">-</span></div>
+        <div><b>Distrikt</b><span id="mDistrict">-</span></div>
+      </div>
+      <input id="worker" placeholder="Ditt namn">
+      <div class="statuses">
+        <button data-status="Ej klippt">Ej klippt</button>
+        <button data-status="Pågår">Pågår</button>
+        <button data-status="Klippt">Klippt</button>
+        <button data-status="Problem">Problem</button>
+      </div>
+      <textarea id="comment" rows="3" placeholder="Kommentar"></textarea>
+      <button class="save" id="saveAreaBtn">Spara status</button>
+    </div>
+  </div>
+
+  <div class="panel" id="pinPanel">
+    <div class="panelHead">
+      <div>
+        <h2 id="pinTitle">Egen nål</h2>
+        <small id="pinSub">Kommentar/avvikelse på kartan</small>
+      </div>
+      <button id="closePin">×</button>
+    </div>
+    <div class="panelBody">
+      <div class="meta">
+        <div><b>X/Lon</b><span id="pinX">-</span></div>
+        <div><b>Y/Lat</b><span id="pinY">-</span></div>
+      </div>
+      <select id="pinType">
+        <option value="Handjagare krävs">Handjagare krävs</option>
+        <option value="Hinder">Hinder</option>
+        <option value="Går ej klippa">Går ej klippa</option>
+        <option value="Behöver kollas">Behöver kollas</option>
+        <option value="Annat">Annat</option>
+      </select>
+      <textarea id="pinComment" rows="4" placeholder="Kommentar, t.ex. Handjagare krävs runt stolpar"></textarea>
+      <select id="pinStatus">
+        <option value="Öppen">Öppen</option>
+        <option value="Fixad">Fixad</option>
+      </select>
+      <div class="row">
+        <button class="mini" id="movePinCenterBtn">Flytta till mitten</button>
+        <button class="mini" id="movePinGpsBtn">Flytta till GPS</button>
+      </div>
+      <button class="save" id="savePinBtn">Spara nål</button>
+      <button class="delete hidden" id="deletePinBtn">Ta bort nål</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">Sparat</div>
+
+  <script>
+    require([
+      "esri/config",
+      "esri/WebMap",
+      "esri/views/MapView",
+      "esri/layers/FeatureLayer",
+      "esri/layers/GraphicsLayer",
+      "esri/widgets/Locate",
+      "esri/Graphic",
+      "esri/geometry/Polyline",
+      "esri/geometry/geometryEngine"
+    ], function(esriConfig, WebMap, MapView, FeatureLayer, GraphicsLayer, Locate, Graphic, Polyline, geometryEngine) {
+      esriConfig.portalUrl = "https://kartor.linkoping.se/portal";
+
+      const WEBMAP_ID = "4811ba982b9e4a97b01cf4353224374b";
+      const LAYER_URL = "https://kartor.linkoping.se/arcgis/rest/services/sts_omradeskarta/sts_skotselkartan_l/MapServer/32";
+
+      const STORE_KEY = "skotselytor_status_v1";
+      const TRACK_KEY = "skotselytor_track_v2";
+      const PINS_KEY = "skotselytor_pins_v2";
+
+      const GOOD_ACCURACY = 30;
+      const BAD_ACCURACY = 80;
+      const IMPOSSIBLE_JUMP_METERS = 70;
+      const MIN_TRACK_DISTANCE_METERS = 3;
+
+      // Prestandajustering: hur ofta (ms) den tunga noggrannhetscirkeln
+      // (geodesicBuffer) och GPS-punkten faktiskt ritas om. GPS-positionen
+      // uppdateras fortfarande löpande internt (för spårning), men den
+      // dyra ritningen på kartan begränsas för att minska lagg.
+      const GPS_REDRAW_INTERVAL_MS = 1500;
+      let lastGpsDrawAt = 0;
+
+      let selectedArea = null;
+      let selectedPinId = null;
+      let pendingPinGeometry = null;
+      let areaStatus = "Ej klippt";
+      let watchId = null;
+      let tracking = false;
+      let addPinMode = false;
+      let followGps = false;
+      let gpsGraphic = null;
+      let accGraphic = null;
+      let lineGraphic = null;
+      let lastGpsPoint = null;
+
+      const statuses = JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
+      let track = JSON.parse(localStorage.getItem(TRACK_KEY) || "[]");
+      let pins = JSON.parse(localStorage.getItem(PINS_KEY) || "[]");
+
+      const statusLayer = new GraphicsLayer({ title:"Klippstatus" });
+      // GPS och nålar ritas i view.graphics istället för vanliga lager.
+      // Det gör att de alltid hamnar överst, även ovanpå ArcGIS MapServer-lager.
+      const trackLayer = new GraphicsLayer({ title:"GPS-spår" });
+
+      const webmap = new WebMap({
+        portalItem: {
+          id: WEBMAP_ID,
+          portal: { url: "https://kartor.linkoping.se/portal" }
+        }
+      });
+
+      const skotselLayer = new FeatureLayer({
+        url: LAYER_URL,
+        outFields:["*"],
+        opacity:0.18,
+        popupEnabled:false,
+        popupTemplate:null,
+        renderer:{
+          type:"simple",
+          symbol:{
+            type:"simple-fill",
+            color:[0,0,0,0],
+            outline:{ color:[8,46,92,.7], width:.7 }
+          }
+        }
+      });
+
+      // Skötselytor och spår som lager. Nålar/GPS läggs i view.graphics för att alltid ligga överst.
+      webmap.layers.addMany([skotselLayer, statusLayer, trackLayer]);
+
+      const view = new MapView({
+        container:"viewDiv",
+        map:webmap,
+        padding:{ top:70 },
+        constraints:{ snapToZoom:false },
+        popupEnabled:false
+      });
+
+      view.popupEnabled = false;
+      try { view.popup.autoOpenEnabled = false; } catch(_) {}
+
+      const locate = new Locate({
+        view,
+        useHeadingEnabled:true,
+        goToOverride:function(view, options){
+          return view.goTo({ target: options.target.target || options.target, scale: view.scale || 900 });
+        }
+      });
+
+      // Esri Locate-widget visas inte. Vi använder egen GPS-följning.
+
+      view.when(() => {
+        try {
+          webmap.allLayers.forEach(layer => {
+            try { layer.popupEnabled = false; layer.popupTemplate = null; } catch(_) {}
+            if (layer.layers) {
+              layer.layers.forEach(sublayer => {
+                try { sublayer.popupEnabled = false; sublayer.popupTemplate = null; } catch(_) {}
+              });
+            }
+          });
+        } catch(_) {}
+        redrawTrack();
+        redrawPins();
+        showToast("Kartan är redo");
+      });
+
+      document.getElementById("gpsBtn").onclick = centerOnGpsOrStart;
+      document.getElementById("trackBtn").onclick = toggleTrack;
+      document.getElementById("pinBtn").onclick = togglePinMode;
+      document.getElementById("pinGpsBtn").onclick = createPinAtGps;
+      document.getElementById("closeArea").onclick = () => document.getElementById("areaPanel").classList.remove("open");
+      document.getElementById("closePin").onclick = closePinPanel;
+      document.getElementById("movePinCenterBtn").onclick = () => {
+        pendingPinGeometry = view.center.clone().toJSON();
+        updatePinCoordsText(pendingPinGeometry);
+        showToast("Nål flyttad till kartans mitt");
+      };
+      document.getElementById("movePinGpsBtn").onclick = () => {
+        if (!lastGpsPoint) { showToast("Ingen GPS-position ännu"); return; }
+        pendingPinGeometry = makeGpsGeometry(lastGpsPoint);
+        updatePinCoordsText(pendingPinGeometry);
+        showToast("Nål flyttad till GPS");
+      };
+
+      document.querySelectorAll("[data-status]").forEach(b => {
+        b.onclick = () => {
+          areaStatus = b.dataset.status;
+          markAreaStatus();
+        };
+      });
+
+      document.getElementById("saveAreaBtn").onclick = () => {
+        if (!selectedArea) return;
+        const a = selectedArea.attributes || {};
+        const id = a.OBJECTID;
+        statuses[id] = {
+          id,
+          status:areaStatus,
+          worker:document.getElementById("worker").value,
+          comment:document.getElementById("comment").value,
+          savedAt:new Date().toISOString(),
+          subtyp:a.SUBTYP || "",
+          team:a.TEAM || a.Team || "",
+          distrikt:a.DISTRIKT || ""
+        };
+        localStorage.setItem(STORE_KEY, JSON.stringify(statuses));
+        showToast("Status sparad");
+      };
+
+      document.getElementById("savePinBtn").onclick = savePin;
+      document.getElementById("deletePinBtn").onclick = deletePin;
+
+      view.on("pointer-down", e => {
+        if (!addPinMode) return;
+        try { e.stopPropagation(); } catch(_) {}
+        try { view.popup.close(); } catch(_) {}
+        const mapPoint = view.toMap({ x:e.x, y:e.y });
+        if (!mapPoint) {
+          showToast("Kunde inte läsa kartpunkt");
+          return;
+        }
+        pendingPinGeometry = mapPoint.clone().toJSON();
+        selectedPinId = null;
+        openPinPanelForNew(pendingPinGeometry);
+        setPinMode(false);
+      });
+
+      view.on("click", async e => {
+        // Stäng ArcGIS egna popuprutor direkt. Vi använder egna paneler istället.
+        try { view.popup.close(); } catch(_) {}
+
+        if (addPinMode) {
+          // I nålläge ska gräsytor ALDRIG fånga klicket.
+          pendingPinGeometry = e.mapPoint.clone().toJSON();
+          selectedPinId = null;
+          openPinPanelForNew(pendingPinGeometry);
+          setPinMode(false);
+          return;
+        }
+
+        const hit = await view.hitTest(e);
+        const pinHit = hit.results.find(r => r.graphic && r.graphic.attributes && r.graphic.attributes.__type === "pin");
+        if (pinHit) {
+          openPinPanelForExisting(pinHit.graphic.attributes.id);
+          return;
+        }
+
+        const areaHit = hit.results.find(r => r.graphic && r.graphic.layer === skotselLayer);
+        if (areaHit) {
+          selectedArea = areaHit.graphic;
+          openAreaPanel(selectedArea);
+        }
+      });
+
+      function createPinAtGps() {
+        if (!lastGpsPoint) {
+          showToast("Tryck Spåra eller GPS först och vänta på position");
+          return;
+        }
+        selectedPinId = null;
+        pendingPinGeometry = makeGpsGeometry(lastGpsPoint);
+        openPinPanelForNew(pendingPinGeometry);
+      }
+
+      function makeGpsGeometry(p) {
+        return { type:"point", longitude:p.lon, latitude:p.lat, spatialReference:{ wkid:4326 } };
+      }
+
+      function centerOnGpsOrStart() {
+        followGps = true;
+        if (!tracking) startTrack();
+        if (lastGpsPoint) {
+          view.goTo({ center:[lastGpsPoint.lon,lastGpsPoint.lat], scale:view.scale || 900 }, { animate:true }).catch(()=>{});
+          showToast("Följer GPS");
+        } else {
+          showToast("Startar GPS… vänta på position");
+        }
+      }
+
+      function createPinAtCenter() {
+        selectedPinId = null;
+        pendingPinGeometry = view.center.clone().toJSON();
+        openPinPanelForNew(pendingPinGeometry);
+        showToast("Nål i kartans mitt");
+      }
+
+      function openAreaPanel(g) {
+        document.getElementById("pinPanel").classList.remove("open");
+        const a = g.attributes || {};
+        const id = a.OBJECTID;
+        const saved = statuses[id];
+        areaStatus = saved ? saved.status : "Ej klippt";
+
+        document.getElementById("areaTitle").textContent = label(a.SUBTYP);
+        document.getElementById("mId").textContent = id || "-";
+        document.getElementById("mType").textContent = a.SUBTYP || "-";
+        document.getElementById("mTeam").textContent = a.TEAM || a.Team || "-";
+        document.getElementById("mDistrict").textContent = a.DISTRIKT || "-";
+        document.getElementById("comment").value = saved ? saved.comment : "";
+        markAreaStatus();
+        document.getElementById("areaPanel").classList.add("open");
+      }
+
+      function markAreaStatus() {
+        document.querySelectorAll("[data-status]").forEach(b => {
+          b.classList.toggle("active", b.dataset.status === areaStatus);
+        });
+      }
+
+      function togglePinMode() { setPinMode(!addPinMode); }
+
+      function setPinMode(v) {
+        addPinMode = v;
+        document.getElementById("pinBtn").classList.toggle("pinMode", addPinMode);
+        document.getElementById("pinHint").classList.toggle("show", addPinMode);
+        document.getElementById("pinBtn").textContent = addPinMode ? "Avbryt" : "Nål";
+      }
+
+      function openPinPanelForNew(geom) {
+        document.getElementById("areaPanel").classList.remove("open");
+        document.getElementById("pinTitle").textContent = "Ny nål";
+        document.getElementById("pinSub").textContent = "Spara kommentar på vald plats";
+        updatePinCoordsText(geom);
+        document.getElementById("pinType").value = "Handjagare krävs";
+        document.getElementById("pinComment").value = "";
+        document.getElementById("pinStatus").value = "Öppen";
+        document.getElementById("deletePinBtn").classList.add("hidden");
+        document.getElementById("pinPanel").classList.add("open");
+      }
+
+      function openPinPanelForExisting(id) {
+        const p = pins.find(x => x.id === id);
+        if (!p) return;
+        selectedPinId = id;
+        pendingPinGeometry = p.geometry;
+
+        document.getElementById("areaPanel").classList.remove("open");
+        document.getElementById("pinTitle").textContent = p.type || "Egen nål";
+        document.getElementById("pinSub").textContent = p.createdAt ? "Skapad: " + new Date(p.createdAt).toLocaleString("sv-SE") : "Sparad nål";
+        updatePinCoordsText(p.geometry);
+        document.getElementById("pinType").value = p.type || "Annat";
+        document.getElementById("pinComment").value = p.comment || "";
+        document.getElementById("pinStatus").value = p.status || "Öppen";
+        document.getElementById("deletePinBtn").classList.remove("hidden");
+        document.getElementById("pinPanel").classList.add("open");
+      }
+
+      function updatePinCoordsText(geom) {
+        if (!geom) return;
+        const x = geom.longitude ?? geom.x ?? "-";
+        const y = geom.latitude ?? geom.y ?? "-";
+        document.getElementById("pinX").textContent = typeof x === "number" ? x.toFixed(4) : x;
+        document.getElementById("pinY").textContent = typeof y === "number" ? y.toFixed(4) : y;
+      }
+
+      function savePin() {
+        if (!pendingPinGeometry) return;
+
+        const data = {
+          id:selectedPinId || ("pin_" + Date.now()),
+          geometry:pendingPinGeometry,
+          type:document.getElementById("pinType").value,
+          comment:document.getElementById("pinComment").value,
+          status:document.getElementById("pinStatus").value,
+          createdAt:selectedPinId ? (pins.find(x => x.id === selectedPinId)?.createdAt || new Date().toISOString()) : new Date().toISOString(),
+          updatedAt:new Date().toISOString()
+        };
+
+        const ix = pins.findIndex(x => x.id === data.id);
+        if (ix >= 0) pins[ix] = data;
+        else pins.push(data);
+
+        localStorage.setItem(PINS_KEY, JSON.stringify(pins));
+        selectedPinId = data.id;
+        redrawPins();
+        showToast("Nål sparad");
+        closePinPanel();
+      }
+
+      function deletePin() {
+        if (!selectedPinId) return;
+        if (!confirm("Ta bort denna nål?")) return;
+        pins = pins.filter(x => x.id !== selectedPinId);
+        localStorage.setItem(PINS_KEY, JSON.stringify(pins));
+        redrawPins();
+        showToast("Nål borttagen");
+        closePinPanel();
+      }
+
+      function closePinPanel() {
+        document.getElementById("pinPanel").classList.remove("open");
+        selectedPinId = null;
+        pendingPinGeometry = null;
+      }
+
+      function redrawPins() {
+        const oldPins = view.graphics.items.filter(g => g.attributes && g.attributes.__type === "pin");
+        oldPins.forEach(g => view.graphics.remove(g));
+
+        for (const p of pins) {
+          if (!p.geometry) continue;
+          view.graphics.add(new Graphic({
+            geometry:p.geometry,
+            attributes:Object.assign({}, p, { __type:"pin" }),
+            symbol:{
+              type:"simple-marker",
+              style:p.status === "Fixad" ? "diamond" : "circle",
+              color: pinColor(p.type, p.status),
+              size:24,
+              outline:{ color:[255,255,255,1], width:3 }
+            }
+          }));
+        }
+      }
+
+      function pinColor(type, status) {
+        if (status === "Fixad") return [34,197,94,0.95];
+        if (type === "Handjagare krävs") return [245,158,11,0.95];
+        if (type === "Går ej klippa") return [239,68,68,0.95];
+        if (type === "Hinder") return [168,85,247,0.95];
+        return [14,165,233,0.95];
+      }
+
+      function toggleTrack() { tracking ? stopTrack() : startTrack(); }
+
+      function startTrack() {
+        if (!navigator.geolocation) {
+          showToast("GPS stöds inte");
+          return;
+        }
+        tracking = true;
+        followGps = true;
+        document.getElementById("trackBtn").classList.add("tracking");
+        document.getElementById("trackBtn").textContent = "Stoppa";
+
+        // Prestanda: maximumAge:2000 gör att webbläsaren kan återanvända en
+        // nyligen uppmätt position i stället för att alltid tvinga fram en
+        // helt färsk GPS-fixering, vilket minskar belastningen märkbart på
+        // äldre telefoner utan att påverka precisionen nämnvärt.
+        watchId = navigator.geolocation.watchPosition(onPos, err => {
+          showToast("GPS-fel: " + err.message);
+          stopTrack();
+        }, { enableHighAccuracy:true, maximumAge:2000, timeout:8000 });
+
+        if (typeof Android !== "undefined" && Android.startBackgroundTracking) {
+          try { Android.startBackgroundTracking(); } catch(_) {}
+        }
+
+        showToast("Spårning startad");
+      }
+
+      function stopTrack() {
+        tracking = false;
+        followGps = false;
+        if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+        document.getElementById("trackBtn").classList.remove("tracking");
+        document.getElementById("trackBtn").textContent = "Spåra";
+
+        if (typeof Android !== "undefined" && Android.stopBackgroundTracking) {
+          try { Android.stopBackgroundTracking(); } catch(_) {}
+        }
+
+        showToast("Spårning stoppad");
+      }
+
+      function onPos(pos) {
+        const c = pos.coords;
+        const p = {
+          lat:c.latitude,
+          lon:c.longitude,
+          accuracy:Math.round(c.accuracy || 0),
+          heading: Number.isFinite(c.heading) ? c.heading : null,
+          time:new Date(pos.timestamp || Date.now()).toISOString()
+        };
+
+        document.getElementById("gpsInfo").textContent = "GPS: ±" + p.accuracy + " m";
+
+        if (p.accuracy <= BAD_ACCURACY) {
+          drawGps(p);
+          lastGpsPoint = p;
+          if (followGps) {
+            view.goTo({ center:[p.lon,p.lat] }, { animate:false }).catch(()=>{});
+          }
+        }
+
+        if (p.accuracy > GOOD_ACCURACY) {
+          showGpsWarn("GPS osäker ±" + p.accuracy + " m – spår sparas ej");
+          return;
+        }
+
+        const last = track[track.length - 1];
+        if (last) {
+          const d = distance(last.lat,last.lon,p.lat,p.lon);
+          if (d > IMPOSSIBLE_JUMP_METERS && p.accuracy > 15) {
+            showGpsWarn("GPS-hopp ignorerat");
+            return;
+          }
+          if (d < MIN_TRACK_DISTANCE_METERS) return;
+        }
+
+        hideGpsWarn();
+        track.push(p);
+        localStorage.setItem(TRACK_KEY, JSON.stringify(track));
+        redrawTrack();
+      }
+
+      function drawGps(p) {
+        const now = performance.now();
+        const point = { type:"point", longitude:p.lon, latitude:p.lat, spatialReference:{ wkid:4326 } };
+
+        // Prestanda: flytta befintlig grafik i stället för att skapa nya
+        // Graphic-objekt varje gång positionen ändras. Att lägga till/ta bort
+        // grafik i view.graphics är betydligt dyrare än att bara sätta
+        // geometry på ett redan existerande objekt.
+        if (gpsGraphic) {
+          gpsGraphic.geometry = point;
+        } else {
+          gpsGraphic = new Graphic({
+            geometry:point,
+            attributes:{ __type:"gps" },
+            symbol:{
+              type:"simple-marker",
+              style:"circle",
+              color:[56,189,248,1],
+              size:20,
+              outline:{ color:[255,255,255,1], width:4 }
+            }
+          });
+          view.graphics.add(gpsGraphic);
+        }
+
+        // Prestanda: den geodesiska noggrannhetscirkeln är en tung beräkning.
+        // Begränsa hur ofta den räknas om och ritas, i stället för varje
+        // enskild GPS-uppdatering (som kan komma flera gånger per sekund).
+        if (now - lastGpsDrawAt < GPS_REDRAW_INTERVAL_MS) return;
+        lastGpsDrawAt = now;
+
+        try {
+          const circle = geometryEngine.geodesicBuffer(point, Math.max(p.accuracy,5), "meters");
+          if (accGraphic) {
+            accGraphic.geometry = circle;
+          } else {
+            accGraphic = new Graphic({
+              geometry:circle,
+              attributes:{ __type:"gpsAccuracy" },
+              symbol:{
+                type:"simple-fill",
+                color:[56,189,248,.10],
+                outline:{ color:[56,189,248,.35], width:1.2 }
+              }
+            });
+            view.graphics.add(accGraphic);
+          }
+        } catch(e) {}
+      }
+
+      function redrawTrack() {
+        if (lineGraphic) trackLayer.remove(lineGraphic);
+        if (track.length < 2) return;
+
+        lineGraphic = new Graphic({
+          geometry:new Polyline({
+            paths:[track.map(p => [p.lon,p.lat])],
+            spatialReference:{ wkid:4326 }
+          }),
+          symbol:{ type:"simple-line", color:[14,165,233,.9], width:4 }
+        });
+
+        trackLayer.add(lineGraphic);
+      }
+
+      function showGpsWarn(t) {
+        const el = document.getElementById("gpsWarn");
+        el.textContent = t;
+        el.classList.add("show");
+      }
+
+      function hideGpsWarn() {
+        document.getElementById("gpsWarn").classList.remove("show");
+      }
+
+      function distance(lat1,lon1,lat2,lon2) {
+        const R = 6371000;
+        const r = d => d * Math.PI / 180;
+        const dLat = r(lat2-lat1);
+        const dLon = r(lon2-lon1);
+        const a = Math.sin(dLat/2)**2 + Math.cos(r(lat1))*Math.cos(r(lat2))*Math.sin(dLon/2)**2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      }
+
+      function label(v) {
+        const m = {
+          bruksgrasmatta:"Bruksgräsmatta",
+          hogvuxen_grasyta_ang:"Högvuxen gräsyta/Äng",
+          bruksgrasmatta_robot:"Bruksgräsmatta med robot",
+          plantering:"Plantering",
+          naturmark:"Naturmark",
+          grasarmering:"Gräsarmering"
+        };
+        return m[v] || v || "Skötselyta";
+      }
+
+      let toastTimer;
+      function showToast(t) {
+        const el = document.getElementById("toast");
+        el.textContent = t;
+        el.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
+      }
+    });
+  </script>
+</body>
+</html>
